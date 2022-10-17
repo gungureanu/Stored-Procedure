@@ -252,6 +252,675 @@ GO
 			------------------------------------------------------------------
 
 
+			--Weekly Totals Start			
+			
+			--=========================================================================
+
+		   --PUT DIRECT CALLS and TRANSFERS FROM VIs into Temp Table -------------------
+
+		    --=========================================================================
+         
+
+			Select * INTO #ccCallDataWTD
+			From CallDataDWProd.dbo.cc_calldata_report CC
+			Where
+			(datepart(dw,Handoff_Time) between 2 and 6 and datepart(hh,Handoff_Time) >= 5 and datepart(hh,Handoff_Time) < 20
+			OR
+			datepart(dw,Handoff_Time) in (1,7) and datepart(hh,Handoff_Time) >= 7 and datepart(hh,Handoff_Time) < 16)
+			AND Handoff_Time >= @FromWTD and Handoff_Time < @EndDate
+			AND Parent_SessionID IS NULL
+			AND (vrs_cc_xfr = 0 OR vri_cc_xfr = 0)
+			AND Incoming = 1
+
+           --=========================================================================
+
+		   -- Add Transfers from VIs to the temp table
+
+	     	--=========================================================================
+
+			INSERT INTO #ccCallDataWTD   
+			Select * From CallDataDWProd.dbo.cc_calldata_report CC
+			Where
+			(
+			datepart(dw,Handoff_Time) between 2 and 6 and datepart(hh,Handoff_Time) >= 5 and datepart(hh,Handoff_Time) < 20
+			OR
+			datepart(dw,Handoff_Time) in (1,7) and datepart(hh,Handoff_Time) >= 7 and datepart(hh,Handoff_Time) < 16
+			)
+			AND Handoff_Time >= @FromWTD and Handoff_Time < @EndDate
+			AND Parent_SessionID NOT IN (Select SessionID From CallDataDWProd.dbo.cc_calldata_report)
+			AND (vrs_cc_xfr = 1 OR vri_cc_xfr = 1)
+
+ 
+            Insert Into #Results
+			Select			
+			 @FromWTD as 'rptStart'
+	        ,@StartDate as 'rptEnd'
+			,'Weekly Totals' as 'DataType'
+			,'Grand Total' as 'TotalType'
+			,'1900-01-01'
+			,SUM(CASE WHEN (AnswerTime+AbandonTime) <= 20 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) AS [SVL20sec]
+			,SUM(CASE WHEN (AnswerTime+AbandonTime) <= 30 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) AS [SVL30sec]
+			,SUM(CASE WHEN (AnswerTime+AbandonTime) <= 60 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) AS [SVL60sec]
+			,SUM(CASE WHEN (AbandonTime) <= 5 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) AS [TBL5Secs]
+			,SUM(CASE WHEN (AbandonTime) <= 10 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) AS [TBL10Secs]
+			,SUM(CASE WHEN (AbandonTime) <= 20 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) AS [TBL20Secs]
+			,SUM(CASE WHEN (AbandonTime) > 20 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) AS [TBLOver20Secs]
+
+			,MAX(datediff(ms,timecallplaced,csOprAcceptTime))/60000.0 as [QueuedTime]
+			,SUM(SessionTime)/60.0 / SUM(NULLIF(Inbound,0)) AS [AvgMinsPerCall]
+			,STDEV(SessionTime/60.0) as [STDDev]
+			,SUM(Answered)/cast(sum(Incoming) as decimal) as [AnsweredPct]
+			,SUM(Incoming) AS [Incoming]
+			,case when sum(Incoming) = 0 then 0 else
+			 (SUM(case when CC.Call_Type IN(130,170) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END)) end as [SVPCallsPct]
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(case when CC.Call_Type IN(85,115,120,35,55,185,190) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [P3CallsPct]
+			,case when sum(Incoming) = 0 then 0 else 
+			 SUM(case when CC.Call_Type IN(100,105,140,145,180,200) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [P3MobileCallsPct]
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(case when CC.Call_Type IN(130,170,85,115,120,35,55,185,190,100,105,140,145,180,200) then 0 else 1 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [OthersCallsPct]
+            ,ISNULL(SUM(Answered),0)
+			,ISNULL(SUM(Abandon),0)
+			,0
+			,0
+			 
+			From #ccCallDataWTD CC
+			Left JOIN aresVRS.dbo.Whitelabels WL
+			ON CC.Branding = WL.ID 
+			Where
+			(
+			datepart(dw,Handoff_Time) between 2 and 6 and datepart(hh,Handoff_Time) >= 5 and datepart(hh,Handoff_Time) < 20
+			OR
+			datepart(dw,Handoff_Time) in (1,7) and datepart(hh,Handoff_Time) >= 7 and datepart(hh,Handoff_Time) < 16
+			)
+			AND Handoff_Time >= @FromWTD and Handoff_Time < @EndDate
+			AND WL.CallerID NOT IN ('8557801091','8552090989','8442568990','8774674877') 
+									
+			DROP TABLE #ccCallDataWTD
+			
+			--=========================================================================
+
+			-- DIRECT CALLS TOTAL TO CUSTOMER CARE
+
+			--=========================================================================
+
+			Insert Into #Results
+			Select
+			 @FromWTD as 'rptStart'
+	        ,@StartDate as 'rptEnd'
+			,'Weekly Totals' as 'DataType'
+			,'Direct Call Total' as 'TotalType'	
+			,'1900-01-01'	
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(CASE WHEN (AnswerTime + AbandonTime) <= 20 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end AS [SL20Secs]
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(CASE WHEN (AnswerTime + AbandonTime) <= 30 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end AS [SL30Secs]
+			,case when sum(Incoming) = 0 then 0 else 
+			 SUM(CASE WHEN (AnswerTime+AbandonTime) <= 60 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end AS [SL60Secs]
+ 
+			,case when sum(Abandon) = 0 then 0 else 
+			 SUM(CASE WHEN (AbandonTime) <= 5 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBL5Secs]
+			,case when sum(Abandon) = 0 then 0 else 
+			 SUM(CASE WHEN (AbandonTime) <= 10 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBL10Secs]
+			,case when sum(Abandon) = 0 then 0 else 
+			SUM(CASE WHEN (AbandonTime) <= 20 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBL20Secs]
+			,case when sum(Abandon) = 0 then 0 else 
+			SUM(CASE WHEN (AbandonTime) > 20 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBLOver20Secs] 
+
+			,MAX(datediff(ms,timecallplaced,csOprAcceptTime))/60000.0 as [QueuedTime]
+			,SUM(SessionTime)/60.0 / SUM(NULLIF(Inbound,0)) AS [AvgMinsPerCall]
+			,STDEV(SessionTime/60.0) as [STDDev]
+			,SUM(Answered)/cast(sum(Incoming) as decimal) as [AnsweredPct]
+			,SUM(Incoming) AS [Incoming]
+			,case when sum(Incoming) = 0 then 0 else
+			 (SUM(case when CC.Call_Type IN(130,170) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END)) end as [SVPCallsPct]
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(case when CC.Call_Type IN(85,115,120,35,55,185,190) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [P3CallsPct]
+			,case when sum(Incoming) = 0 then 0 else 
+			 SUM(case when CC.Call_Type IN(100,105,140,145,180,200) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [P3MobileCallsPct]
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(case when CC.Call_Type IN(130,170,85,115,120,35,55,185,190,100,105,140,145,180,200) then 0 else 1 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [OthersCallsPct]
+			,ISNULL(SUM(Answered),0)
+			,ISNULL(SUM(Abandon),0)
+			,0
+			,0
+
+			From CallDataDWProd.dbo.cc_calldata_report CC
+			Left JOIN aresVRS.dbo.Whitelabels WL
+			ON CC.Branding = WL.ID 
+			Where
+			(
+			datepart(dw,Handoff_Time) between 2 and 6 and datepart(hh,Handoff_Time) >= 5 and datepart(hh,Handoff_Time) < 20
+			OR
+			datepart(dw,Handoff_Time) in (1,7) and datepart(hh,Handoff_Time) >= 7 and datepart(hh,Handoff_Time) < 16
+			)
+			AND Handoff_Time >= @FromWTD and Handoff_Time < @EndDate
+			AND Parent_SessionID IS NULL
+			AND (vrs_cc_xfr = 0 AND vri_cc_xfr = 0)
+			AND Incoming = 1
+			AND WL.CallerID NOT IN ('8557801091','8552090989','8442568990','8774674877') 
+
+			--=========================================================================
+
+			-- DIRECT CALLS GROUPED by Phone Number CUSTOMER CARE
+
+			--=========================================================================
+ 
+
+			Insert Into #Results
+            Select 
+			 @FromWTD as 'rptStart'
+	        ,@StartDate as 'rptEnd'
+			,'Weekly Totals' as 'DataType'
+			,WL.CallerID as 'TotalType'	
+			,'1900-01-01'	
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(CASE WHEN (AnswerTime + AbandonTime) <= 20 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end AS [SL20Secs]
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(CASE WHEN (AnswerTime + AbandonTime) <= 30 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end AS [SL30Secs]
+			,case when sum(Incoming) = 0 then 0 else 
+			 SUM(CASE WHEN (AnswerTime + AbandonTime) <= 60 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end AS [SL60Secs]
+ 
+			,case when sum(Abandon) = 0 then 0 else 
+			 SUM(CASE WHEN (AbandonTime) <= 5 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBL5Secs]
+			,case when sum(Abandon) = 0 then 0 else 
+			 SUM(CASE WHEN (AbandonTime) <= 10 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBL10Secs]
+			,case when sum(Abandon) = 0 then 0 else 
+			SUM(CASE WHEN (AbandonTime) <= 20 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBL20Secs]
+			,case when sum(Abandon) = 0 then 0 else 
+			SUM(CASE WHEN (AbandonTime) > 20 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBLOver20Secs]
+
+			,MAX(datediff(ms,timecallplaced,csOprAcceptTime))/60000.0 as [QueuedTime]
+			,SUM(SessionTime)/60.0 / SUM(NULLIF(Inbound,0)) AS [AvgMinsPerCall]
+			,STDEV(SessionTime/60.0) as [STDDev]
+			,SUM(Answered)/cast(sum(Incoming) as decimal) as [AnsweredPct]
+			,SUM(Incoming) AS [Incoming]
+			,case when sum(Incoming) = 0 then 0 else
+			 (SUM(case when CC.Call_Type IN(130,170) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END)) end as [SVPCallsPct]
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(case when CC.Call_Type IN(85,115,120,35,55,185,190) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [P3CallsPct]
+			,case when sum(Incoming) = 0 then 0 else 
+			 SUM(case when CC.Call_Type IN(100,105,140,145,180,200) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [P3MobileCallsPct]
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(case when CC.Call_Type IN(130,170,85,115,120,35,55,185,190,100,105,140,145,180,200) then 0 else 1 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [OthersCallsPct]
+			,ISNULL(SUM(Answered),0)
+			,ISNULL(SUM(Abandon),0)
+			,0
+			,0
+
+			From CallDataDWProd.dbo.cc_calldata_report CC
+			Left JOIN aresVRS.dbo.Whitelabels WL
+			ON CC.Branding = WL.ID 
+			Where
+			(
+			datepart(dw,Handoff_Time) between 2 and 6 and datepart(hh,Handoff_Time) >= 5 and datepart(hh,Handoff_Time) < 20
+			OR
+			datepart(dw,Handoff_Time) in (1,7) and datepart(hh,Handoff_Time) >= 7 and datepart(hh,Handoff_Time) < 16
+			)
+			AND Handoff_Time >= @FromWTD and Handoff_Time < @EndDate
+			AND Parent_SessionID IS NULL
+			AND (vrs_cc_xfr = 0 AND vri_cc_xfr = 0)
+			AND Incoming = 1
+			AND WL.CallerID NOT IN ('8557801091','8552090989','8442568990','8774674877')
+			Group By WL.CallerID
+			Order By Count(Distinct ConvoID) DESC 
+
+			--=========================================================================
+
+			-- TRANSFERS TO CUSTOMER CARE FROM Vis
+
+			--=========================================================================
+			
+			Insert Into #Results 
+			Select
+			@FromWTD as 'rptStart'
+	        ,@StartDate as 'rptEnd'
+			,'Weekly Totals' as 'DataType'
+			,'Transferred From VI' as 'TotalType'	
+			,'1900-01-01'				
+	    	,case when sum(Incoming) = 0 then 0 else
+			 SUM(CASE WHEN (AnswerTime + AbandonTime) <= 20 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end AS [SL20Secs]
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(CASE WHEN (AnswerTime + AbandonTime) <= 30 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end AS [SL30Secs]
+			,case when sum(Incoming) = 0 then 0 else 
+			 SUM(CASE WHEN (AnswerTime + AbandonTime) <= 60 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end AS [SL60Secs]
+ 
+			,case when sum(Abandon) = 0 then 0 else 
+			 SUM(CASE WHEN (AbandonTime) <= 5 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBL5Secs]
+			,case when sum(Abandon) = 0 then 0 else 
+			 SUM(CASE WHEN (AbandonTime) <= 10 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBL10Secs]
+			,case when sum(Abandon) = 0 then 0 else 
+			SUM(CASE WHEN (AbandonTime) <= 20 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBL20Secs]
+			,case when sum(Abandon) = 0 then 0 else 
+			SUM(CASE WHEN (AbandonTime) > 20 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBLOver20Secs] 
+
+			,MAX(datediff(ms,timecallplaced,csOprAcceptTime))/60000.0 as [QueuedTime]
+			,SUM(SessionTime)/60.0 / SUM(NULLIF(Inbound,0)) AS [AvgMinsPerCall]
+			,STDEV(SessionTime/60.0) as [STDDev]
+			,SUM(Answered)/cast(sum(Incoming) as decimal) as [AnsweredPct]
+			,SUM(Incoming) AS [Incoming]
+			,case when sum(Incoming) = 0 then 0 else
+			 (SUM(case when CC.Call_Type IN(130,170) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END)) end as [SVPCallsPct]
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(case when CC.Call_Type IN(85,115,120,35,55,185,190) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [P3CallsPct]
+			,case when sum(Incoming) = 0 then 0 else 
+			 SUM(case when CC.Call_Type IN(100,105,140,145,180,200) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [P3MobileCallsPct]
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(case when CC.Call_Type IN(130,170,85,115,120,35,55,185,190,100,105,140,145,180,200) then 0 else 1 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [OthersCallsPct] 
+			,ISNULL(SUM(Answered),0)
+			,ISNULL(SUM(Abandon),0)
+			,0
+			,0
+
+			From CallDataDWProd.dbo.cc_calldata_report CC
+			Left JOIN aresVRS.dbo.Whitelabels WL
+			ON CC.Branding = WL.ID 
+			Where
+			(
+			datepart(dw,Handoff_Time) between 2 and 6 and datepart(hh,Handoff_Time) >= 5 and datepart(hh,Handoff_Time) < 20
+			OR
+			datepart(dw,Handoff_Time) in (1,7) and datepart(hh,Handoff_Time) >= 7 and datepart(hh,Handoff_Time) < 16
+			)
+			AND Handoff_Time >= @FromWTD and Handoff_Time < @EndDate
+			AND Parent_SessionID NOT IN (Select SessionID From CallDataDWProd.dbo.cc_calldata_report)
+			AND (vrs_cc_xfr = 1 OR vri_cc_xfr = 1)
+			AND WL.CallerID NOT IN ('8557801091','8552090989','8442568990','8774674877') 
+
+			--=========================================================================
+
+			-- WARM TRANSFERS WITHIN CUSTOMER CARE - USE DISTINCT CONVOID for Incoming
+
+			--=========================================================================
+
+			insert into #Results
+            Select
+			@FromWTD as 'rptStart'
+	        ,@StartDate as 'rptEnd'
+			,'Weekly Totals' as 'DataType'
+			,'Warm Transfers' as 'TotalType'
+			,'1900-01-01'		 
+			,NULL AS [SVL 20 sec]
+			,NULL AS [SVL 30 sec]
+			,NULL AS [SVL 60 sec]
+			,NULL AS [Under 5 sec]
+			,NULL AS [Under 10 sec]
+			,NULL AS [Under 20 sec]
+			,NULL AS [Over 20 sec]
+			,NULL as [Longest Wait]
+			,SUM(SessionTime)/60.0 / Count(Distinct ConvoID) AS [AvgMinsPerCall]
+			,STDEV(SessionTime/60.0) as [STDDev]
+			,NULL as [AnsweredPct]
+			,Count(Distinct ConvoID) AS [Incoming]
+			,CASE WHEN Count(Distinct ConvoID)=0 THEN 0 ELSE SUM(case when Call_Type IN(130,170) then 1 else 0 end)/(Count(Distinct ConvoID)*1.0) END as [SVPCallsPct]
+			,CASE WHEN Count(Distinct ConvoID)=0 THEN 0 ELSE SUM(case when Call_Type IN(85,115,120,35,55,185,190) then 1 else 0 end)/(Count(Distinct ConvoID)*1.0) END as [P3CallsPct]
+			,CASE WHEN Count(Distinct ConvoID)=0 THEN 0 ELSE SUM(case when Call_Type IN(100,105,140,145,180,200) then 1 else 0 end)/(Count(Distinct ConvoID)*1.0) END as [P3MobileCallsPct]
+			,CASE WHEN Count(Distinct ConvoID)=0 THEN 0 ELSE SUM(case when Call_Type IN(130,170,85,115,120,35,55,185,190,100,105,140,145,180,200) then 0 else 1 end)/(Count(Distinct ConvoID)*1.0) END as [OthersCallsPct]
+			,NULL [Answered]
+			,NULL [Abandon]
+			,0
+			,0
+
+			From CallDataDWProd.dbo.cc_calldata_report CC
+			Left JOIN aresVRS.dbo.Whitelabels WL
+			ON CC.Branding = WL.ID 
+			Where
+			(
+			datepart(dw,Handoff_Time) between 2 and 6 and datepart(hh,Handoff_Time) >= 5 and datepart(hh,Handoff_Time) < 20
+			OR
+			datepart(dw,Handoff_Time) in (1,7) and datepart(hh,Handoff_Time) >= 7 and datepart(hh,Handoff_Time) < 16
+			)
+			AND Handoff_Time >= @FromWTD and Handoff_Time < @EndDate
+			AND
+			(
+			Parent_SessionID IN (Select SessionID From CallDataDWProd.dbo.cc_calldata_report)
+			OR
+			Parent_SessionID LIKE 'OBCC%'
+			) 
+			AND WL.CallerID NOT IN ('8557801091','8552090989','8442568990','8774674877') 
+
+			--=========================================================================
+
+			--Weekly Totals End
+
+			--=========================================================================				
+
+			--Monthly Totals Start
+
+			--========================================================================= 
+
+            --=========================================================================
+
+		    --PUT DIRECT CALLS and TRANSFERS FROM VIs into Temp Table
+
+		    --=========================================================================
+         
+
+			Select * INTO #tempccCallData 
+			From CallDataDWProd.dbo.cc_calldata_report CC
+			Where
+			(
+			datepart(dw,Handoff_Time) between 2 and 6 and datepart(hh,Handoff_Time) >= 5 and datepart(hh,Handoff_Time) < 20
+			OR
+			datepart(dw,Handoff_Time) in (1,7) and datepart(hh,Handoff_Time) >= 7 and datepart(hh,Handoff_Time) < 16
+			)
+			AND Handoff_Time >= @FromMTD and Handoff_Time < @MTDEndDate
+			AND Parent_SessionID IS NULL
+			AND (vrs_cc_xfr = 0 OR vri_cc_xfr = 0)
+			AND Incoming = 1
+
+           --=========================================================================
+
+		   -- Add Transfers from VIs to the temp table
+
+	     	--=========================================================================
+
+			INSERT INTO #tempccCallData  
+			Select * From CallDataDWProd.dbo.cc_calldata_report CC
+			Where
+			(
+			datepart(dw,Handoff_Time) between 2 and 6 and datepart(hh,Handoff_Time) >= 5 and datepart(hh,Handoff_Time) < 20
+			OR
+			datepart(dw,Handoff_Time) in (1,7) and datepart(hh,Handoff_Time) >= 7 and datepart(hh,Handoff_Time) < 16
+			)
+			AND Handoff_Time >= @FromMTD and Handoff_Time < @MTDEndDate
+			AND Parent_SessionID NOT IN (Select SessionID From CallDataDWProd.dbo.cc_calldata_report)
+			AND (vrs_cc_xfr = 1 OR vri_cc_xfr = 1)
+
+ 
+            Insert Into #Results
+			Select			
+			 @FromMTD as 'rptStart'
+	        ,@Startdate as 'rptEnd'
+			,'Monthly Totals' as 'DataType'
+			,'Grand Total' as 'TotalType'
+			,'1900-01-01'
+			,SUM(CASE WHEN (AnswerTime+AbandonTime) <= 20 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) AS [SVL20sec]
+			,SUM(CASE WHEN (AnswerTime+AbandonTime) <= 30 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) AS [SVL30sec]
+			,SUM(CASE WHEN (AnswerTime+AbandonTime) <= 60 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) AS [SVL60sec]
+			,SUM(CASE WHEN (AbandonTime) <= 5 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) AS [TBL5Secs]
+			,SUM(CASE WHEN (AbandonTime) <= 10 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) AS [TBL10Secs]
+			,SUM(CASE WHEN (AbandonTime) <= 20 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) AS [TBL20Secs]
+			,SUM(CASE WHEN (AbandonTime) > 20 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) AS [TBLOver20Secs]
+
+			,MAX(datediff(ms,timecallplaced,csOprAcceptTime))/60000.0 as [QueuedTime]
+			,SUM(SessionTime)/60.0 / SUM(NULLIF(Inbound,0)) AS [AvgMinsPerCall]
+			,STDEV(SessionTime/60.0) as [STDDev]
+			,SUM(Answered)/cast(sum(Incoming) as decimal) as [AnsweredPct]
+			,SUM(Incoming) AS [Incoming]
+			,case when sum(Incoming) = 0 then 0 else
+			 (SUM(case when CC.Call_Type IN(130,170) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END)) end as [SVPCallsPct]
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(case when CC.Call_Type IN(85,115,120,35,55,185,190) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [P3CallsPct]
+			,case when sum(Incoming) = 0 then 0 else 
+			 SUM(case when CC.Call_Type IN(100,105,140,145,180,200) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [P3MobileCallsPct]
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(case when CC.Call_Type IN(130,170,85,115,120,35,55,185,190,100,105,140,145,180,200) then 0 else 1 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [OthersCallsPct]
+			,ISNULL(SUM(Answered),0)
+			,ISNULL(SUM(Abandon),0)
+			,0
+			,0
+
+			From #tempccCallData CC
+			Left JOIN aresVRS.dbo.Whitelabels WL
+			ON CC.Branding = WL.ID 
+			Where
+			(
+			datepart(dw,Handoff_Time) between 2 and 6 and datepart(hh,Handoff_Time) >= 5 and datepart(hh,Handoff_Time) < 20
+			OR
+			datepart(dw,Handoff_Time) in (1,7) and datepart(hh,Handoff_Time) >= 7 and datepart(hh,Handoff_Time) < 16
+			)
+			AND Handoff_Time >= @FromMTD and Handoff_Time < @MTDEndDate
+			AND WL.CallerID NOT IN ('8557801091','8552090989','8442568990','8774674877') 
+									
+			DROP TABLE #tempccCallData
+
+			--=========================================================================
+
+			-- DIRECT CALLS TOTAL TO CUSTOMER CARE
+
+			--=========================================================================
+
+			Insert Into #Results
+			Select
+			 @FromMTD as 'rptStart'
+	        ,@Startdate as 'rptEnd'
+			,'Monthly Totals' as 'DataType'
+			,'Direct Call Total' as 'TotalType'		
+			,'1900-01-01'
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(CASE WHEN (AnswerTime + AbandonTime) <= 20 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end AS [SL20Secs]
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(CASE WHEN (AnswerTime + AbandonTime) <= 30 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end AS [SL30Secs]
+			,case when sum(Incoming) = 0 then 0 else 
+			 SUM(CASE WHEN (AnswerTime+AbandonTime) <= 60 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end AS [SL60Secs]
+ 
+			,case when sum(Abandon) = 0 then 0 else 
+			 SUM(CASE WHEN (AbandonTime) <= 5 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBL5Secs]
+			,case when sum(Abandon) = 0 then 0 else 
+			 SUM(CASE WHEN (AbandonTime) <= 10 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBL10Secs]
+			,case when sum(Abandon) = 0 then 0 else 
+			SUM(CASE WHEN (AbandonTime) <= 20 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBL20Secs]
+			,case when sum(Abandon) = 0 then 0 else 
+			SUM(CASE WHEN (AbandonTime) > 20 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBLOver20Secs] 
+
+			,MAX(datediff(ms,timecallplaced,csOprAcceptTime))/60000.0 as [QueuedTime]
+			,SUM(SessionTime)/60.0 / SUM(NULLIF(Inbound,0)) AS [AvgMinsPerCall]
+			,STDEV(SessionTime/60.0) as [STDDev]
+			,SUM(Answered)/cast(sum(Incoming) as decimal) as [AnsweredPct]
+			,SUM(Incoming) AS [Incoming]
+			,case when sum(Incoming) = 0 then 0 else
+			 (SUM(case when CC.Call_Type IN(130,170) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END)) end as [SVPCallsPct]
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(case when CC.Call_Type IN(85,115,120,35,55,185,190) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [P3CallsPct]
+			,case when sum(Incoming) = 0 then 0 else 
+			 SUM(case when CC.Call_Type IN(100,105,140,145,180,200) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [P3MobileCallsPct]
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(case when CC.Call_Type IN(130,170,85,115,120,35,55,185,190,100,105,140,145,180,200) then 0 else 1 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [OthersCallsPct]
+			,ISNULL(SUM(Answered),0)
+			,ISNULL(SUM(Abandon),0)
+			,0
+			,0
+
+			From CallDataDWProd.dbo.cc_calldata_report CC
+			Left JOIN aresVRS.dbo.Whitelabels WL
+			ON CC.Branding = WL.ID 
+			Where
+			(
+			datepart(dw,Handoff_Time) between 2 and 6 and datepart(hh,Handoff_Time) >= 5 and datepart(hh,Handoff_Time) < 20
+			OR
+			datepart(dw,Handoff_Time) in (1,7) and datepart(hh,Handoff_Time) >= 7 and datepart(hh,Handoff_Time) < 16
+			)
+			AND Handoff_Time >= @FromMTD and Handoff_Time < @MTDEndDate
+			AND Parent_SessionID IS NULL
+			AND (vrs_cc_xfr = 0 AND vri_cc_xfr = 0)
+			AND Incoming = 1
+			AND WL.CallerID NOT IN ('8557801091','8552090989','8442568990','8774674877') 
+
+			--=========================================================================
+
+			-- DIRECT CALLS GROUPED by Phone Number CUSTOMER CARE
+
+			--=========================================================================
+ 
+
+			Insert Into #Results
+            Select 
+			 @FromMTD as 'rptStart'
+	        ,@Startdate as 'rptEnd'
+			,'Monthly Totals' as 'DataType'
+			,WL.CallerID as 'TotalType'	
+			,'1900-01-01'	
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(CASE WHEN (AnswerTime + AbandonTime) <= 20 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end AS [SL20Secs]
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(CASE WHEN (AnswerTime + AbandonTime) <= 30 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end AS [SL30Secs]
+			,case when sum(Incoming) = 0 then 0 else 
+			 SUM(CASE WHEN (AnswerTime + AbandonTime) <= 60 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end AS [SL60Secs]
+ 
+			,case when sum(Abandon) = 0 then 0 else 
+			 SUM(CASE WHEN (AbandonTime) <= 5 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBL5Secs]
+			,case when sum(Abandon) = 0 then 0 else 
+			 SUM(CASE WHEN (AbandonTime) <= 10 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBL10Secs]
+			,case when sum(Abandon) = 0 then 0 else 
+			SUM(CASE WHEN (AbandonTime) <= 20 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBL20Secs]
+			,case when sum(Abandon) = 0 then 0 else 
+			SUM(CASE WHEN (AbandonTime) > 20 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBLOver20Secs]
+
+			,MAX(datediff(ms,timecallplaced,csOprAcceptTime))/60000.0 as [QueuedTime]
+			,SUM(SessionTime)/60.0 / SUM(NULLIF(Inbound,0)) AS [AvgMinsPerCall]
+			,STDEV(SessionTime/60.0) as [STDDev]
+			,SUM(Answered)/cast(sum(Incoming) as decimal) as [AnsweredPct]
+			,SUM(Incoming) AS [Incoming]
+			,case when sum(Incoming) = 0 then 0 else
+			 (SUM(case when CC.Call_Type IN(130,170) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END)) end as [SVPCallsPct]
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(case when CC.Call_Type IN(85,115,120,35,55,185,190) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [P3CallsPct]
+			,case when sum(Incoming) = 0 then 0 else 
+			 SUM(case when CC.Call_Type IN(100,105,140,145,180,200) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [P3MobileCallsPct]
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(case when CC.Call_Type IN(130,170,85,115,120,35,55,185,190,100,105,140,145,180,200) then 0 else 1 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [OthersCallsPct]
+			,ISNULL(SUM(Answered),0)
+			,ISNULL(SUM(Abandon),0)
+			,0
+			,0
+
+			From CallDataDWProd.dbo.cc_calldata_report CC
+			Left JOIN aresVRS.dbo.Whitelabels WL
+			ON CC.Branding = WL.ID 
+			Where
+			(
+			datepart(dw,Handoff_Time) between 2 and 6 and datepart(hh,Handoff_Time) >= 5 and datepart(hh,Handoff_Time) < 20
+			OR
+			datepart(dw,Handoff_Time) in (1,7) and datepart(hh,Handoff_Time) >= 7 and datepart(hh,Handoff_Time) < 16
+			)
+			AND Handoff_Time >= @FromMTD and Handoff_Time < @MTDEndDate
+			AND Parent_SessionID IS NULL
+			AND (vrs_cc_xfr = 0 AND vri_cc_xfr = 0)
+			AND Incoming = 1
+			AND WL.CallerID NOT IN ('8557801091','8552090989','8442568990','8774674877')
+			Group By WL.CallerID
+			Order By Count(Distinct ConvoID) DESC 
+
+			--=========================================================================
+
+			-- TRANSFERS TO CUSTOMER CARE FROM Vis
+
+			--=========================================================================
+			
+			Insert Into #Results 
+			Select
+			 @FromMTD as 'rptStart'
+	        ,@Startdate as 'rptEnd'
+			,'Monthly Totals' as 'DataType'
+			,'Transferred From VI' as 'TotalType'
+			,'1900-01-01'					
+	    	,case when sum(Incoming) = 0 then 0 else
+			 SUM(CASE WHEN (AnswerTime + AbandonTime) <= 20 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end AS [SL20Secs]
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(CASE WHEN (AnswerTime + AbandonTime) <= 30 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end AS [SL30Secs]
+			,case when sum(Incoming) = 0 then 0 else 
+			 SUM(CASE WHEN (AnswerTime + AbandonTime) <= 60 and Incoming = 1 THEN 1.0 ELSE 0 END)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end AS [SL60Secs]
+ 
+			,case when sum(Abandon) = 0 then 0 else 
+			 SUM(CASE WHEN (AbandonTime) <= 5 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBL5Secs]
+			,case when sum(Abandon) = 0 then 0 else 
+			 SUM(CASE WHEN (AbandonTime) <= 10 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBL10Secs]
+			,case when sum(Abandon) = 0 then 0 else 
+			SUM(CASE WHEN (AbandonTime) <= 20 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBL20Secs]
+			,case when sum(Abandon) = 0 then 0 else 
+			SUM(CASE WHEN (AbandonTime) > 20 and Abandon = 1 THEN 1.0 ELSE 0 END)/NULLIF(SUM(CASE WHEN Abandon = 1 THEN 1.0 ELSE 0.0 END),0) end AS [TBLOver20Secs] 
+
+			,MAX(datediff(ms,timecallplaced,csOprAcceptTime))/60000.0 as [QueuedTime]
+			,SUM(SessionTime)/60.0 / SUM(NULLIF(Inbound,0)) AS [AvgMinsPerCall]
+			,STDEV(SessionTime/60.0) as [STDDev]
+			,SUM(Answered)/cast(sum(Incoming) as decimal) as [AnsweredPct]
+			,SUM(Incoming) AS [Incoming]
+			,case when sum(Incoming) = 0 then 0 else
+			 (SUM(case when CC.Call_Type IN(130,170) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END)) end as [SVPCallsPct]
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(case when CC.Call_Type IN(85,115,120,35,55,185,190) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [P3CallsPct]
+			,case when sum(Incoming) = 0 then 0 else 
+			 SUM(case when CC.Call_Type IN(100,105,140,145,180,200) then 1 else 0 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [P3MobileCallsPct]
+			,case when sum(Incoming) = 0 then 0 else
+			 SUM(case when CC.Call_Type IN(130,170,85,115,120,35,55,185,190,100,105,140,145,180,200) then 0 else 1 end)/SUM(CASE WHEN Incoming = 1 THEN 1.0 ELSE 0.0 END) end as [OthersCallsPct] 
+			,ISNULL(SUM(Answered),0)
+			,ISNULL(SUM(Abandon),0)
+			,0
+			,0
+
+			From CallDataDWProd.dbo.cc_calldata_report CC
+			Left JOIN aresVRS.dbo.Whitelabels WL
+			ON CC.Branding = WL.ID 
+			Where
+			(
+			datepart(dw,Handoff_Time) between 2 and 6 and datepart(hh,Handoff_Time) >= 5 and datepart(hh,Handoff_Time) < 20
+			OR
+			datepart(dw,Handoff_Time) in (1,7) and datepart(hh,Handoff_Time) >= 7 and datepart(hh,Handoff_Time) < 16
+			)
+			AND Handoff_Time >= @FromMTD and Handoff_Time < @MTDEndDate
+			AND Parent_SessionID NOT IN (Select SessionID From CallDataDWProd.dbo.cc_calldata_report)
+			AND (vrs_cc_xfr = 1 OR vri_cc_xfr = 1)
+			AND WL.CallerID NOT IN ('8557801091','8552090989','8442568990','8774674877') 
+
+			--=========================================================================
+
+			-- WARM TRANSFERS WITHIN CUSTOMER CARE - USE DISTINCT CONVOID for Incoming
+
+			--=========================================================================
+
+			insert into #Results
+            Select
+			  @FromMTD as 'rptStart'
+	        ,@Startdate as 'rptEnd'
+			,'Monthly Totals' as 'DataType'
+			,'Warm Transfers' as 'TotalType'
+			,'1900-01-01'		 
+			,NULL AS [SVL 20 sec]
+			,NULL AS [SVL 30 sec]
+			,NULL AS [SVL 60 sec]
+			,NULL AS [Under 5 sec]
+			,NULL AS [Under 10 sec]
+			,NULL AS [Under 20 sec]
+			,NULL AS [Over 20 sec]
+			,NULL as [Longest Wait]
+			,SUM(SessionTime)/60.0 / Count(Distinct ConvoID) AS [AvgMinsPerCall]
+			,STDEV(SessionTime/60.0) as [STDDev]
+			,NULL as [AnsweredPct]
+			,Count(Distinct ConvoID) AS [Incoming]
+			,CASE WHEN Count(Distinct ConvoID)=0 THEN 0 ELSE SUM(case when Call_Type IN(130,170) then 1 else 0 end)/(Count(Distinct ConvoID)*1.0) END as [SVPCallsPct]
+			,CASE WHEN Count(Distinct ConvoID)=0 THEN 0 ELSE SUM(case when Call_Type IN(85,115,120,35,55,185,190) then 1 else 0 end)/(Count(Distinct ConvoID)*1.0) END as [P3CallsPct]
+			,CASE WHEN Count(Distinct ConvoID)=0 THEN 0 ELSE SUM(case when Call_Type IN(100,105,140,145,180,200) then 1 else 0 end)/(Count(Distinct ConvoID)*1.0) END as [P3MobileCallsPct]
+			,CASE WHEN Count(Distinct ConvoID)=0 THEN 0 ELSE SUM(case when Call_Type IN(130,170,85,115,120,35,55,185,190,100,105,140,145,180,200) then 0 else 1 end)/(Count(Distinct ConvoID)*1.0) END as [OthersCallsPct]
+			,NULL [Answered]
+			,NULL [Abandon]
+			,0
+			,0
+
+			From CallDataDWProd.dbo.cc_calldata_report CC
+			Left JOIN aresVRS.dbo.Whitelabels WL
+			ON CC.Branding = WL.ID 
+			Where
+			(
+			datepart(dw,Handoff_Time) between 2 and 6 and datepart(hh,Handoff_Time) >= 5 and datepart(hh,Handoff_Time) < 20
+			OR
+			datepart(dw,Handoff_Time) in (1,7) and datepart(hh,Handoff_Time) >= 7 and datepart(hh,Handoff_Time) < 16
+			)
+			AND Handoff_Time >= @FromMTD and Handoff_Time < @MTDEndDate
+			AND
+			(
+			Parent_SessionID IN (Select SessionID From CallDataDWProd.dbo.cc_calldata_report)
+			OR
+			Parent_SessionID LIKE 'OBCC%'
+			)
+			AND WL.CallerID NOT IN ('8557801091','8552090989','8442568990','8774674877') 
+
+			--=========================================================================
+
+			--Monthly Totals End
+
+			--=========================================================================
+
+
 			Select * from #Results
 			
 
