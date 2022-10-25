@@ -1,4 +1,4 @@
-﻿USE [Reports]
+USE [Reports]
 GO
 /****** Object:  StoredProcedure [dbo].[p_rpt2929NCD_SelectOperatorPerformance]    Script Date: 8/31/2014 6:37:10 PM ******/
 SET ANSI_NULLS ON
