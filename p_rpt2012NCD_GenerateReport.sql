@@ -1,4 +1,4 @@
-﻿USE [Reports]
+USE [Reports]
 GO
 
 /****** Object:  StoredProcedure [dbo].[p_rpt2012NCD_GenerateReport]    Script Date: 11/18/14 5:35:39 PM ******/
@@ -10,7 +10,7 @@ GO
 
 
 -- =============================================
--- Stored Procedure Name:		p_rpt2012NCD_GenerateReport
+-- Stored Procedure Name:	p_rpt2012NCD_GenerateReport
 -- Data Base/Tables:            Reports/vrs_calldata_report
 -- Functions:                   satVRS/fn_rpt2012NCD_priorMonth
 -- SSRS Report:                 Test_2012(NCD) - Monthly CSS Report
@@ -130,7 +130,7 @@ AS
  
 --################################################################################
 
---------------------------Piror Month Outbound Calls------------------------------
+--------------------------Prior Month Outbound Calls------------------------------
 
 --################################################################################
 
@@ -194,20 +194,12 @@ AS
 			Group by c.AgentID, d.[OB calls]
 			Order by c.AgentID
 
-	   Select dbo.fn_rpt2012NCD_priorMonth(2,'start',@EndDate) StartDate,@EndDate EndDate,AgentID,OutboundCalls,TerpUserScore,PerfectScore,VIScore
-	    from #TerpUserScore where OutboundCalls is not NULL order by AgentID
+	   Select dbo.fn_rpt2012NCD_priorMonth(2,'start',@EndDate) StartDate,@EndDate EndDate,AgentID,OutboundCalls,TerpUserScore,PerfectScore,VIScore 
+	   from #TerpUserScore where OutboundCalls is not NULL order by AgentID
 	 
- 
 Drop table #OutBoundCalls
 Drop table #TerpScore
 Drop Table #UserScore
 Drop table #TerpUserScore
 
-
-
-
-
-
 GO
-
-
